@@ -106,6 +106,7 @@ export default function Home() {
   const [paramsCollapsed, setParamsCollapsed] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const onboardingDone = onboardingStep >= 1;
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [showFullPrompt, setShowFullPrompt] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
@@ -216,7 +217,7 @@ export default function Home() {
     } catch (err) { console.error(err); }
   }, []);
 
-  useEffect(() => { fetchChatHistory(username); }, [username, fetchChatHistory]);
+  useEffect(() => { if (onboardingDone) fetchChatHistory(username); }, [username, onboardingDone, fetchChatHistory]);
 
   // ─── Helpers ───
   const updateParam = (key: string, updates: Partial<ParamState>) => {
@@ -592,155 +593,38 @@ export default function Home() {
 
   // ─────────────────────────── RENDER ───────────────────────────
 
-  const onboardingDone = onboardingStep >= 3;
-
   // ─── Onboarding Wizard ───
   if (!onboardingDone) {
     return (
       <div className="min-h-screen text-slate-100 font-[family-name:var(--font-inter)] flex items-center justify-center p-4">
         <div className="w-full max-w-lg">
-          {/* Step indicators */}
-          <div className="flex items-center justify-center gap-2 mb-8">
-            {[0, 1, 2].map((s) => (
-              <div
-                key={s}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  s === onboardingStep ? "w-8 bg-indigo-500" : s < onboardingStep ? "w-4 bg-indigo-500/50" : "w-4 bg-white/10"
-                }`}
+          <div className="step-enter glass-card p-8 text-center space-y-6">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+              <Bot size={32} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-2">Welcome to SAIL Lab</h1>
+              <p className="text-sm text-slate-400">Build democratic conversation skills by chatting with an AI whose personality you design.</p>
+            </div>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter your name"
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500/50 focus:outline-none text-center"
+                onKeyDown={(e) => { if (e.key === "Enter" && username.trim()) setOnboardingStep(1); }}
+                autoFocus
               />
-            ))}
+              <button
+                onClick={() => setOnboardingStep(1)}
+                disabled={!username.trim()}
+                className="glow-btn w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Get Started <ArrowRight size={16} />
+              </button>
+            </div>
           </div>
-
-          {/* Step 0: Welcome */}
-          {onboardingStep === 0 && (
-            <div className="step-enter glass-card p-8 text-center space-y-6">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                <Bot size={32} className="text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-white mb-2">Welcome to SAIL Lab</h1>
-                <p className="text-sm text-slate-400">Build democratic conversation skills by chatting with an AI whose personality you design.</p>
-              </div>
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your name"
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500/50 focus:outline-none text-center"
-                  onKeyDown={(e) => { if (e.key === "Enter" && username.trim()) setOnboardingStep(1); }}
-                  autoFocus
-                />
-                <button
-                  onClick={() => setOnboardingStep(1)}
-                  disabled={!username.trim()}
-                  className="glow-btn w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  Get Started <ArrowRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 1: Mode Selection */}
-          {onboardingStep === 1 && (
-            <div className="step-enter glass-card p-8 space-y-6">
-              <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-1">Choose a Political Leaning</h2>
-                <p className="text-sm text-slate-400">This shapes the AI&apos;s core beliefs and perspective.</p>
-              </div>
-              <div className="space-y-3">
-                {modes.map((m, i) => (
-                  <button
-                    key={m}
-                    onClick={() => setMode(m)}
-                    className={`w-full p-3.5 rounded-xl border text-left text-sm font-medium transition-all flex items-center justify-between ${
-                      mode === m
-                        ? "border-indigo-500/40 bg-indigo-500/10 text-white"
-                        : "border-white/5 bg-white/[0.02] text-slate-400 hover:bg-white/5 hover:text-white"
-                    }`}
-                  >
-                    <span className="flex items-center gap-3">
-                      <span
-                        className="w-3 h-3 rounded-full"
-                        style={{ background: modeColors[modes[i]] }}
-                      />
-                      {m}
-                    </span>
-                    {mode === m && <ChevronRight size={16} className="text-indigo-400" />}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setOnboardingStep(0)}
-                  className="px-4 py-2.5 rounded-xl text-sm text-slate-400 hover:text-white transition border border-white/10"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={() => setOnboardingStep(2)}
-                  className="glow-btn flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 text-sm"
-                >
-                  Next <ArrowRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Trait Tuning */}
-          {onboardingStep === 2 && (
-            <div className="step-enter glass-card p-8 space-y-6">
-              <div className="text-center">
-                <h2 className="text-xl font-bold text-white mb-1">Tune Personality Traits</h2>
-                <p className="text-sm text-slate-400">Adjust how the AI communicates. You can fine-tune later.</p>
-              </div>
-              <div className="flex justify-center">
-                <RadarChart data={radarData} size={180} />
-              </div>
-              <div className="space-y-2 max-h-[240px] overflow-y-auto custom-scrollbar pr-1">
-                {paramConfigs.map((p) => {
-                  const state = params[p.key];
-                  return (
-                    <div key={p.key} className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02]">
-                      <span className="text-xs w-[100px] shrink-0 text-slate-400 flex items-center gap-1">
-                        <span>{p.emoji}</span> {p.name}
-                      </span>
-                      <input
-                        type="range" min="1" max="5"
-                        value={state.value}
-                        onChange={(e) => updateParam(p.key, { value: parseInt(e.target.value), editedText: null })}
-                        className="flex-1 cursor-pointer"
-                      />
-                      <span className="text-xs font-mono text-indigo-400 w-4 text-center">{state.value}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setOnboardingStep(1)}
-                  className="px-4 py-2.5 rounded-xl text-sm text-slate-400 hover:text-white transition border border-white/10"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={() => setOnboardingStep(3)}
-                  className="glow-btn flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 text-sm"
-                >
-                  Start Chatting <ArrowRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Skip link */}
-          <button
-            onClick={() => { if (!username.trim()) { setUsername("Guest"); } setOnboardingStep(3); }}
-            className="block mx-auto mt-4 text-xs text-slate-500 hover:text-slate-300 transition underline underline-offset-2"
-          >
-            Skip to dashboard
-          </button>
         </div>
       </div>
     );
