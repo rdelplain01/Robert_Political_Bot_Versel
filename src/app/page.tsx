@@ -68,6 +68,9 @@ export default function Home() {
   const [editBeliefs, setEditBeliefs] = useState(false);
   const [editedBeliefs, setEditedBeliefs] = useState<string | null>(null);
 
+  // Custom parameters
+  const [customParams, setCustomParams] = useState<{ key: string; name: string }[]>([]);
+
   // Parameters
   const [params, setParams] = useState<Record<string, ParamState>>(() => {
     const initial: Record<string, ParamState> = {};
@@ -94,6 +97,7 @@ export default function Home() {
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [reviewConversationId, setReviewConversationId] = useState<number | null>(null);
   const preReviewParamsRef = useRef<Record<string, ParamState> | null>(null);
+  const preReviewCustomParamsRef = useRef<{ key: string; name: string }[] | null>(null);
   const [chatHistory, setChatHistory] = useState<ConversationRecord[]>([]);
   const [savingCount, setSavingCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -103,6 +107,8 @@ export default function Home() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const [showFullPrompt, setShowFullPrompt] = useState(false);
+  const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [hoveredConvoId, setHoveredConvoId] = useState<number | null>(null);
 
@@ -112,7 +118,7 @@ export default function Home() {
   const conversationIdRef = useRef(conversationId);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
-  useEffect(() => { generatedPromptRef.current = generatedPrompt; }, [generatedPrompt]);
+  useEffect(() => { generatedPromptRef.current = editedPrompt ?? generatedPrompt; }, [generatedPrompt, editedPrompt]);
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
 
   // ─── ElevenLabs ───
@@ -187,8 +193,16 @@ export default function Home() {
       "{persuadability}": params.persuadability.enabled ? `Persuadability: ${params.persuadability.editedText ?? params.persuadability.loadedText}\n` : "",
     };
     for (const [k, v] of Object.entries(reps)) fullPrompt = fullPrompt.replace(k, v);
+
+    // Append custom parameters
+    const customLines = customParams
+      .filter((cp) => params[cp.key]?.enabled && params[cp.key]?.editedText?.trim())
+      .map((cp) => `${cp.name}: ${params[cp.key].editedText!.trim()}`)
+      .join("\n");
+    if (customLines) fullPrompt += "\n" + customLines + "\n";
+
     setGeneratedPrompt(fullPrompt);
-  }, [params, expressionTemplate, beliefsText, editedBeliefs]);
+  }, [params, expressionTemplate, beliefsText, editedBeliefs, customParams]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -209,6 +223,22 @@ export default function Home() {
     setParams((prev) => ({ ...prev, [key]: { ...prev[key], ...updates } }));
   };
 
+  const addCustomParam = () => {
+    const key = `custom_${Date.now()}`;
+    const name = `Custom ${customParams.length + 1}`;
+    setCustomParams((prev) => [...prev, { key, name }]);
+    setParams((prev) => ({ ...prev, [key]: { enabled: true, value: 3, isEditing: true, editedText: "", loadedText: "" } }));
+  };
+
+  const removeCustomParam = (key: string) => {
+    setCustomParams((prev) => prev.filter((p) => p.key !== key));
+    setParams((prev) => { const next = { ...prev }; delete next[key]; return next; });
+  };
+
+  const renameCustomParam = (key: string, name: string) => {
+    setCustomParams((prev) => prev.map((p) => p.key === key ? { ...p, name } : p));
+  };
+
   const buildPromptSnapshot = () => {
     const snap: Record<string, unknown> = {};
     for (const p of paramConfigs) {
@@ -216,6 +246,12 @@ export default function Home() {
       if (!s.enabled) snap[p.name] = "DISABLED";
       else if (s.editedText && s.editedText.trim() !== s.loadedText.trim()) snap[p.name] = s.editedText.trim();
       else snap[p.name] = s.value;
+    }
+    for (const cp of customParams) {
+      const s = params[cp.key];
+      if (!s) continue;
+      if (!s.enabled) snap[cp.name] = "DISABLED";
+      else if (s.editedText?.trim()) snap[cp.name] = s.editedText.trim();
     }
     return snap;
   };
@@ -312,7 +348,7 @@ export default function Home() {
     await endCurrentConversation("reset");
     setMode("Right"); setEditBeliefs(false); setEditedBeliefs(null);
     setSessionReady(false); setVoiceMode(false); setMessages([]);
-    setReviewConversationId(null);
+    setReviewConversationId(null); setEditedPrompt(null); setShowFullPrompt(false); setCustomParams([]);
     setParams((prev) => {
       const reset: Record<string, ParamState> = {};
       for (const key of Object.keys(prev)) {
@@ -437,15 +473,27 @@ export default function Home() {
       setConversationId(null);
       setSidebarOpen(false);
 
-      // Save current params before applying snapshot
-      preReviewParamsRef.current = { ...params };
+      // Save original params only on first review entry (not when switching between history items)
+      if (!preReviewParamsRef.current) {
+        preReviewParamsRef.current = { ...params };
+        preReviewCustomParamsRef.current = [...customParams];
+      }
 
       // Apply prompt snapshot to parameters
       const convo = chatHistory.find((c) => c.id === convoId);
       if (convo?.prompt_snapshot) {
         const snap = convo.prompt_snapshot;
-        setParams((prev) => {
-          const updated = { ...prev };
+        const builtInNames = new Set(paramConfigs.map((p) => p.name));
+        const restoredCustom: { key: string; name: string }[] = [];
+
+        // Start from the original pre-review params to avoid accumulating old custom keys
+        setParams(() => {
+          const base = preReviewParamsRef.current!;
+          const updated: Record<string, ParamState> = {};
+          // Only carry over built-in param keys
+          for (const p of paramConfigs) {
+            updated[p.key] = { ...base[p.key] };
+          }
           for (const p of paramConfigs) {
             const val = snap[p.name];
             if (val === undefined) continue;
@@ -457,8 +505,22 @@ export default function Home() {
               updated[p.key] = { ...updated[p.key], enabled: true, editedText: val, isEditing: true };
             }
           }
+          // Restore custom params from snapshot
+          for (const [name, val] of Object.entries(snap)) {
+            if (builtInNames.has(name)) continue;
+            const key = `custom_${Date.now()}_${restoredCustom.length}`;
+            restoredCustom.push({ key, name });
+            if (val === "DISABLED") {
+              updated[key] = { enabled: false, value: 3, isEditing: false, editedText: null, loadedText: "" };
+            } else if (typeof val === "string") {
+              updated[key] = { enabled: true, value: 3, isEditing: true, editedText: val, loadedText: "" };
+            }
+          }
           return updated;
         });
+        setCustomParams(restoredCustom);
+      } else {
+        setCustomParams([]);
       }
     } catch (err) { console.error(err); }
   };
@@ -882,7 +944,7 @@ export default function Home() {
         {/* ─── Left Column: Settings (hidden on mobile unless panel open) ─── */}
         <div className="hidden lg:block lg:col-span-7 space-y-5">
           {/* Mode Selection */}
-          <div className="glass-card p-5">
+          <div className={`glass-card p-5 ${editedPrompt !== null ? "opacity-40 pointer-events-none" : ""}`}>
             <h2 className="text-sm font-semibold mb-4 flex items-center gap-2 text-slate-300">
               <Settings className="text-indigo-400" size={16} /> Mode Selection
             </h2>
@@ -922,7 +984,7 @@ export default function Home() {
           </div>
 
           {/* Conversation Parameters */}
-          <div className="glass-card p-5">
+          <div className={`glass-card p-5 ${editedPrompt !== null ? "opacity-40 pointer-events-none" : ""}`}>
             <button
               onClick={() => setParamsCollapsed(!paramsCollapsed)}
               className="w-full text-sm font-semibold flex items-center justify-between text-slate-300 group"
@@ -988,6 +1050,92 @@ export default function Home() {
                     </div>
                   );
                 })}
+
+                {/* Custom Parameters */}
+                {customParams.map((cp) => {
+                  const state = params[cp.key];
+                  if (!state) return null;
+                  return (
+                    <div
+                      key={cp.key}
+                      className={`p-3 rounded-xl border transition-all ${
+                        state.enabled
+                          ? "border-indigo-500/20 bg-indigo-500/[0.03] hover:border-indigo-500/30"
+                          : "border-transparent bg-white/[0.01] opacity-40"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => updateParam(cp.key, { enabled: !state.enabled })}
+                          className={`toggle-track shrink-0 ${state.enabled ? "active" : ""}`}
+                        >
+                          <div className="toggle-thumb" />
+                        </button>
+                        <input
+                          type="text"
+                          value={cp.name}
+                          onChange={(e) => renameCustomParam(cp.key, e.target.value)}
+                          className="text-xs font-medium text-slate-300 bg-transparent border-b border-white/10 focus:border-indigo-500/50 focus:outline-none flex-1 min-w-0 py-0.5"
+                          placeholder="Parameter name"
+                        />
+                        <button
+                          onClick={() => removeCustomParam(cp.key)}
+                          className="p-1.5 rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition"
+                          title="Remove"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                      {state.enabled && (
+                        <textarea
+                          ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                          value={state.editedText ?? ""}
+                          onChange={(e) => { updateParam(cp.key, { editedText: e.target.value }); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
+                          placeholder="Describe this parameter's behavior..."
+                          className="w-full mt-3 p-2.5 bg-white/5 border border-white/10 rounded-lg text-xs min-h-[50px] focus:ring-2 focus:ring-indigo-500/50 focus:outline-none text-slate-300 resize-none overflow-y-auto custom-scrollbar"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+
+                <button
+                  onClick={addCustomParam}
+                  className="w-full py-2.5 rounded-xl border border-dashed border-white/10 hover:border-indigo-500/30 text-xs font-medium text-slate-500 hover:text-indigo-400 transition flex items-center justify-center gap-1.5"
+                >
+                  + Add Custom Parameter
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Edit Full Prompt */}
+          <div className="glass-card p-4">
+            <button
+              onClick={() => setShowFullPrompt(!showFullPrompt)}
+              className="w-full flex items-center justify-between text-xs font-bold text-slate-300 hover:text-white transition"
+            >
+              <span className="flex items-center gap-2">
+                <Edit3 size={14} className="text-indigo-400" />
+                {editedPrompt !== null ? "Full Prompt (edited)" : "Full Prompt"}
+              </span>
+              {showFullPrompt ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {showFullPrompt && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  value={editedPrompt ?? generatedPrompt}
+                  onChange={(e) => setEditedPrompt(e.target.value)}
+                  className="w-full p-2.5 bg-white/5 border border-white/10 rounded-lg text-xs min-h-[200px] focus:ring-2 focus:ring-indigo-500/50 focus:outline-none text-slate-300 resize-y overflow-y-auto custom-scrollbar font-mono"
+                />
+                {editedPrompt !== null && (
+                  <button
+                    onClick={() => setEditedPrompt(null)}
+                    className="text-[10px] text-amber-400 hover:text-amber-300 transition"
+                  >
+                    Reset to auto-generated
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1025,7 +1173,9 @@ export default function Home() {
                   <button
                     onClick={() => {
                       if (preReviewParamsRef.current) setParams(preReviewParamsRef.current);
+                      setCustomParams(preReviewCustomParamsRef.current ?? []);
                       preReviewParamsRef.current = null;
+                      preReviewCustomParamsRef.current = null;
                       setReviewConversationId(null); setMessages([]); setSessionReady(false);
                     }}
                     className="flex-1 px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-white text-xs font-bold border border-indigo-500/30 transition flex items-center justify-center gap-1.5"
@@ -1035,6 +1185,7 @@ export default function Home() {
                   <button
                     onClick={() => {
                       preReviewParamsRef.current = null;
+                      preReviewCustomParamsRef.current = null;
                       setReviewConversationId(null); setMessages([]); setSessionReady(false);
                     }}
                     className="flex-1 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-white text-xs font-bold border border-amber-500/30 transition flex items-center justify-center gap-1.5"
