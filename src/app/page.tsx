@@ -93,6 +93,7 @@ export default function Home() {
   const [username, setUsername] = useState("");
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [reviewConversationId, setReviewConversationId] = useState<number | null>(null);
+  const preReviewParamsRef = useRef<Record<string, ParamState> | null>(null);
   const [chatHistory, setChatHistory] = useState<ConversationRecord[]>([]);
   const [savingCount, setSavingCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -435,6 +436,30 @@ export default function Home() {
       setReviewConversationId(convoId);
       setConversationId(null);
       setSidebarOpen(false);
+
+      // Save current params before applying snapshot
+      preReviewParamsRef.current = { ...params };
+
+      // Apply prompt snapshot to parameters
+      const convo = chatHistory.find((c) => c.id === convoId);
+      if (convo?.prompt_snapshot) {
+        const snap = convo.prompt_snapshot;
+        setParams((prev) => {
+          const updated = { ...prev };
+          for (const p of paramConfigs) {
+            const val = snap[p.name];
+            if (val === undefined) continue;
+            if (val === "DISABLED") {
+              updated[p.key] = { ...updated[p.key], enabled: false, isEditing: false };
+            } else if (typeof val === "number") {
+              updated[p.key] = { ...updated[p.key], enabled: true, value: val, editedText: null, isEditing: false };
+            } else if (typeof val === "string") {
+              updated[p.key] = { ...updated[p.key], enabled: true, editedText: val, isEditing: true };
+            }
+          }
+          return updated;
+        });
+      }
     } catch (err) { console.error(err); }
   };
 
@@ -992,16 +1017,31 @@ export default function Home() {
                 )}
               </>
             ) : isReviewMode ? (
-              <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between text-sm">
+              <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl flex flex-col gap-2.5 text-sm">
                 <span className="flex items-center gap-2 text-amber-400 font-semibold">
                   <History size={16} /> Viewing Past Chat
                 </span>
-                <button
-                  onClick={() => { setReviewConversationId(null); setMessages([]); setSessionReady(false); }}
-                  className="px-3.5 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-white text-xs font-bold border border-indigo-500/30 transition flex items-center gap-1.5"
-                >
-                  <ArrowRight size={13} /> Back to Chat
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      if (preReviewParamsRef.current) setParams(preReviewParamsRef.current);
+                      preReviewParamsRef.current = null;
+                      setReviewConversationId(null); setMessages([]); setSessionReady(false);
+                    }}
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-white text-xs font-bold border border-indigo-500/30 transition flex items-center justify-center gap-1.5"
+                  >
+                    <ArrowRight size={13} /> Back to Chat
+                  </button>
+                  <button
+                    onClick={() => {
+                      preReviewParamsRef.current = null;
+                      setReviewConversationId(null); setMessages([]); setSessionReady(false);
+                    }}
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-white text-xs font-bold border border-amber-500/30 transition flex items-center justify-center gap-1.5"
+                  >
+                    <ArrowRight size={13} /> Keep Parameters
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex gap-3">
