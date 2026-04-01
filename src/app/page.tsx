@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Send, Settings, User, Bot, RotateCcw, Play, Edit3, Mic,
   History, X, ChevronDown, ChevronUp, ChevronRight, ArrowRight,
-  Search, Trash2, Save, Square, Loader2,
+  Search, Trash2, Save, Square, Loader2, Download,
 } from "lucide-react";
 import { useConversation } from "@elevenlabs/react";
 import RadarChart from "@/components/RadarChart";
@@ -458,6 +458,27 @@ export default function Home() {
     } catch (err) { console.error(err); }
   };
 
+  // ─── Download conversation as text file ───
+  const handleDownloadChat = async (convoId: number, title?: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${convoId}`);
+      const data = await res.json();
+      const msgs: { role: string; content: string; created_at?: string }[] = data.messages || [];
+      const lines = msgs.map((m) => {
+        const speaker = m.role === "user" ? "You" : "Robert";
+        return `${speaker}: ${m.content}`;
+      });
+      const text = lines.join("\n\n");
+      const blob = new Blob([text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(title || "conversation").replace(/[^a-z0-9]/gi, "_")}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { console.error(err); }
+  };
+
   // ─── Date grouping ───
   const groupByDate = (convos: ConversationRecord[]) => {
     const now = new Date();
@@ -714,13 +735,22 @@ export default function Home() {
                         <div className="font-medium text-slate-200 truncate pr-6">{convo.title}</div>
                         <div className="text-[10px] text-slate-500 mt-0.5">{new Date(convo.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteConversation(convo.id); }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/item:opacity-100 hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition"
-                        title="Delete"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-0.5 opacity-0 group-hover/item:opacity-100 transition">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDownloadChat(convo.id, convo.title); }}
+                          className="p-1 rounded hover:bg-indigo-500/20 text-slate-500 hover:text-indigo-400 transition"
+                          title="Download"
+                        >
+                          <Download size={13} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteConversation(convo.id); }}
+                          className="p-1 rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition"
+                          title="Delete"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                       {/* Prompt snapshot tooltip */}
                       {hoveredConvoId === convo.id && convo.prompt_snapshot && (
                         <div className="absolute left-full top-0 ml-2 z-50 w-48 p-2.5 glass-card text-[10px] space-y-0.5 pointer-events-none">
@@ -1011,6 +1041,15 @@ export default function Home() {
                 {voiceMode && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold">🎙 VOICE</span>}
                 {isReviewMode && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">📖 REVIEW</span>}
               </span>
+              {isReviewMode && reviewConversationId && (
+                <button
+                  onClick={() => handleDownloadChat(reviewConversationId, chatHistory.find(c => c.id === reviewConversationId)?.title)}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-indigo-300 transition"
+                  title="Download conversation"
+                >
+                  <Download size={15} />
+                </button>
+              )}
               {sessionReady && <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-lg shadow-emerald-400/50"></span>}
             </div>
 
